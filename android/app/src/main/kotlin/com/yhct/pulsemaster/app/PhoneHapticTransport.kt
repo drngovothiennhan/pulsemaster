@@ -1,10 +1,12 @@
 package com.yhct.pulsemaster.app
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -46,7 +48,40 @@ class PhoneHapticTransport(context: Context, private var calibration: FingerCali
     private var nextBeatAt = 0L
     private val beatRunnable = Runnable { onBeatTick() }
 
+    /**
+     * true = lực lấy từ vị trí dọc của ngón trong pad (đáy nhẹ, đỉnh mạnh) thay cho cảm biến.
+     * Dùng khi chưa hiệu chuẩn được: nhiều máy báo pressure/size cố định nên lực chuẩn hóa luôn ≈ 0 và không bao giờ rung.
+     */
+    var dragMode = false
+    /** Giá trị thô gần nhất (để hiển thị chẩn đoán). */
+    var lastRaw: RawSample? = null
+        private set
+
     fun setCalibration(c: FingerCalibration) { calibration = c }
+
+    /** Rung thử [ms] mili giây ở biên độ tối đa; trả về mô tả để hiển thị. */
+    fun testVibrate(ms: Long = 500): String {
+        val v = vibrator ?: return "Không lấy được dịch vụ rung của hệ thống"
+        if (!v.hasVibrator()) return "Thiết bị báo KHÔNG có động cơ rung"
+        return try {
+            play(v, VibrationEffect.createOneShot(ms, if (v.hasAmplitudeControl()) 255 else VibrationEffect.DEFAULT_AMPLITUDE))
+            "Đã gửi lệnh rung $ms ms. Nếu không cảm thấy: tắt Im lặng/Không làm phiền và Tiết kiệm pin; " +
+                "Cài đặt → Âm thanh và rung → bật rung nội dung nghe nhìn/phản hồi khi chạm."
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "Rung thử thất bại", e)
+            "Lệnh rung bị từ chối: ${e.message}"
+        }
+    }
+
+    /** Gắn nhãn 'media' để rung không bị tắt theo cài đặt 'phản hồi khi chạm' của hệ thống. */
+    private fun play(v: Vibrator, effect: VibrationEffect) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            v.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_MEDIA))
+        } else {
+            @Suppress("DEPRECATION")
+            v.vibrate(effect, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
+        }
+    }
 
     override fun open() {
         setState(
@@ -75,9 +110,13 @@ class PhoneHapticTransport(context: Context, private var calibration: FingerCali
     }
 
     /** Gọi từ PulsePadView cho ACTION_DOWN / ACTION_MOVE. */
-    fun onTouch(region: Region, event: MotionEvent) {
+    fun onTouch(region: Region, event: MotionEvent, padHeight: Int) {
         val raw = RawSample(event.getPressure(0).toDouble(), event.getSize(0).toDouble())
-        val f = filters.getValue(region).update(calibration.fuse(raw))
+        lastRaw = raw
+        val f0 = if (dragMode) {
+            if (padHeight > 0) (1.0 - event.getY(0).toDouble() / padHeight).coerceIn(0.0, 1.0) else 0.0
+        } else calibration.fuse(raw)
+        val f = filters.getValue(region).update(f0)
         val depth = trackers.getValue(region).update(f)
         forces[region] = f
         val now = SystemClock.uptimeMillis()
@@ -132,7 +171,7 @@ class PhoneHapticTransport(context: Context, private var calibration: FingerCali
                 // Không có điều khiển biên độ: chỉ điều chỉnh được độ dài xung (xấp xỉ).
                 VibrationEffect.createOneShot((20 + 60 * plan.peak).toLong(), VibrationEffect.DEFAULT_AMPLITUDE)
             }
-            v.vibrate(effect)
+            play(v, effect)
         } catch (e: IllegalArgumentException) {
             Log.e(TAG, "Hiệu ứng rung không hợp lệ", e)
             setState(TransportState.Failed("Hiệu ứng rung bị từ chối: ${e.message}"))

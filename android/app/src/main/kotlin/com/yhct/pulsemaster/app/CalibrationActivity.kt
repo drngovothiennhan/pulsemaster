@@ -26,12 +26,24 @@ class CalibrationActivity : Activity() {
     private lateinit var pad: View
     private var recording = false
     private var fingerDown = false
-    private var lastSampleAt = 0L
+    private var lastRaw: RawSample? = null
+    private lateinit var rawText: TextView
+    // min/max từng pha để báo lại khi hiệu chuẩn không được: [pha][pMin, pMax, sMin, sMax, số mẫu]
+    private val stats = Array(3) { doubleArrayOf(Double.MAX_VALUE, -Double.MAX_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE, 0.0) }
 
     private val ticker = object : Runnable {
         override fun run() {
             if (!recording) return
             val now = SystemClock.uptimeMillis()
+            // Lấy mẫu theo đồng hồ (20 lần/giây) từ giá trị chạm mới nhất: ngón đứng yên sinh rất ít ACTION_MOVE.
+            val raw = lastRaw
+            if (fingerDown && raw != null) {
+                recorder.addSample(now, raw)?.let { ph ->
+                    val s = stats[ph.ordinal]
+                    s[0] = minOf(s[0], raw.pressure); s[1] = maxOf(s[1], raw.pressure)
+                    s[2] = minOf(s[2], raw.size); s[3] = maxOf(s[3], raw.size); s[4] += 1.0
+                }
+            }
             progress.progress = (recorder.progress(now) * 1000).toInt()
             val ph = recorder.phaseAt(now)
             if (ph == null) { finishRecording(); return }
@@ -55,6 +67,7 @@ class CalibrationActivity : Activity() {
             override fun performClick(): Boolean { super.performClick(); return true }
         }.apply { setBackgroundColor(Color.rgb(232, 245, 233)) }
         col.addView(pad, pad.lp(h = 0, weight = 1f, margin = dp(8)))
+        rawText = label("Chạm vào vùng trên để xem thông số mà máy báo.", 12f, color = Color.GRAY).also { col.addView(it) }
         info = label("", 13f, color = Color.DKGRAY).also { col.addView(it) }
         col.addView(button("Bắt đầu") { startRecording() }, col.lp(margin = dp(4)))
         col.addView(button("Xóa hiệu chuẩn đã lưu") {
@@ -66,6 +79,7 @@ class CalibrationActivity : Activity() {
     private fun startRecording() {
         recording = true
         info.text = ""
+        for (s in stats) { s[0] = Double.MAX_VALUE; s[1] = -Double.MAX_VALUE; s[2] = Double.MAX_VALUE; s[3] = -Double.MAX_VALUE; s[4] = 0.0 }
         recorder.start(SystemClock.uptimeMillis())
         handler.post(ticker)
     }
@@ -74,9 +88,11 @@ class CalibrationActivity : Activity() {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                 fingerDown = true
-                if (recording) recorder.addSample(SystemClock.uptimeMillis(), RawSample(e.getPressure(0).toDouble(), e.getSize(0).toDouble()))
+                val raw = RawSample(e.getPressure(0).toDouble(), e.getSize(0).toDouble())
+                lastRaw = raw
+                rawText.text = "pressure %.3f · size %.3f".format(raw.pressure, raw.size)
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { fingerDown = false; pad.performClick() }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { fingerDown = false; lastRaw = null; pad.performClick() }
             else -> return false
         }
         return true
@@ -97,8 +113,16 @@ class CalibrationActivity : Activity() {
             }
         } catch (e: CalibrationException) {
             phaseText.text = "Chưa đạt"
-            info.text = e.message ?: "Hiệu chuẩn thất bại"
+            info.text = (e.message ?: "Hiệu chuẩn thất bại") + "\n" + statsText() +
+                "\nNếu số đo ba pha gần như giống nhau, máy này không báo lực/diện tích: màn Khám sẽ dùng chế độ kéo dọc."
         }
+    }
+
+    private fun statsText(): String = stats.indices.joinToString("\n") { i ->
+        val s = stats[i]
+        val name = listOf("nhẹ", "vừa", "mạnh")[i]
+        if (s[4] == 0.0) "$name: 0 mẫu"
+        else "$name: ${s[4].toInt()} mẫu | pressure %.3f–%.3f | size %.3f–%.3f".format(s[0], s[1], s[2], s[3])
     }
 
     override fun onPause() { super.onPause(); recording = false; handler.removeCallbacks(ticker) }

@@ -26,6 +26,11 @@ class MainActivity : Activity() {
         col.addView(button("2. Khám 18 điểm") {
             startActivity(Intent(this, ExamActivity::class.java))
         }, col.lp(margin = dp(6)))
+        val vib = label("", 13f, color = Color.DKGRAY)
+        col.addView(button("Thử rung 0,5 giây") {
+            vib.text = PhoneHapticTransport(this, CalibrationStore(this).load()).testVibrate()
+        }, col.lp(margin = dp(6)))
+        col.addView(vib)
         setContentView(ScrollView(this).apply { addView(col) })
     }
 

@@ -13,6 +13,20 @@ jobs:
         with: { node-version: '22' }
       - run: node --test web/test/core.test.mjs
 
+  web-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install --no-save playwright@1.63.0
+      - run: npx playwright install --with-deps chromium
+      - run: node web/test/e2e/feedback.cjs
+      - run: node web/test/e2e/calibration.cjs
+      - run: node web/test/e2e/features.cjs
+      - run: node web/test/e2e/pwa-offline.cjs
+
   core-tests:
     runs-on: ubuntu-latest
     steps:

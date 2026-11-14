@@ -127,7 +127,14 @@ class PulsePadView(context: Context, val region: Region) : View(context) {
         set(v) { field = v; postInvalidateOnAnimation() }
     var highlighted: Boolean = false
         set(v) { field = v; postInvalidateOnAnimation() }
+    /** Chế độ kéo dọc: vẽ vạch ranh giới Phù/Trung/Trầm theo chiều cao pad. */
+    var dragMode: Boolean = false
+        set(v) { field = v; postInvalidateOnAnimation() }
 
+    private val zoneLine = Paint().apply { color = Color.LTGRAY; strokeWidth = 2f }
+    private val zoneText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.GRAY; textAlign = Paint.Align.RIGHT; textSize = 11f * resources.displayMetrics.scaledDensity
+    }
     private val bg = Paint(Paint.ANTI_ALIAS_FLAG)
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.DKGRAY; textAlign = Paint.Align.CENTER; textSize = 18f * resources.displayMetrics.scaledDensity
@@ -150,6 +157,15 @@ class PulsePadView(context: Context, val region: Region) : View(context) {
         border.strokeWidth = if (highlighted) 4 * d else 1.5f * d
         border.color = if (highlighted) Color.rgb(21, 101, 192) else Color.LTGRAY
         c.drawRoundRect(r, 16 * d, 16 * d, border)
+        if (dragMode) {
+            val names = listOf("Trầm", "Trung", "Phù")
+            val tops = listOf(1.0, Zones.range(Depth.TRUNG).endInclusive, Zones.range(Depth.PHU).endInclusive)
+            for (i in 0..2) {
+                val y = (height * (1.0 - tops[i])).toFloat()
+                if (i > 0) c.drawLine(4 * d, y, width - 4 * d, y, zoneLine)
+                c.drawText(names[i], width - 10 * d, y + 16 * d, zoneText)
+            }
+        }
         c.drawText(region.label, width / 2f, height / 2f, label)
         c.drawText(depth.label.substringBefore(' '), width / 2f, height / 2f + 22 * d, sub)
     }

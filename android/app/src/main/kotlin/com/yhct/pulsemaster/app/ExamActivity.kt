@@ -36,6 +36,7 @@ class ExamActivity : Activity(), PadTouchListener, PulseTransportListener {
     private lateinit var statusText: TextView
     private lateinit var transportText: TextView
     private lateinit var feelText: TextView
+    private lateinit var rawText: TextView
     private lateinit var gauge: ForceGaugeView
     private lateinit var wave: PulseWaveView
     private val pads = HashMap<Region, PulsePadView>()
@@ -80,6 +81,7 @@ class ExamActivity : Activity(), PadTouchListener, PulseTransportListener {
         val tr = row()
         tr.addView(button("Điện thoại") { wantBle = false; selectTransport() }, tr.lp(w = 0, weight = 1f))
         tr.addView(button("Đệm BLE") { requestBle() }, tr.lp(w = 0, weight = 1f))
+        tr.addView(button("Thử rung") { rawText.text = phone.testVibrate() }, tr.lp(w = 0, weight = 1f))
         root.addView(tr, tr.lp())
         transportText = label("", 12f, color = Color.DKGRAY).also { root.addView(it) }
 
@@ -93,6 +95,8 @@ class ExamActivity : Activity(), PadTouchListener, PulseTransportListener {
             body.addView(pad, LinearLayout.LayoutParams(0, dp(280), 1f))
         }
         root.addView(body, body.lp())
+
+        rawText = label("", 12f, color = Color.GRAY).also { root.addView(it) }
 
         wave = PulseWaveView(this)
         root.addView(wave, wave.lp(h = dp(130), margin = dp(4)))
@@ -111,6 +115,12 @@ class ExamActivity : Activity(), PadTouchListener, PulseTransportListener {
     private fun selectTransport() {
         active.stopFeedback(); active.close(); active.listener = null
         if (!wantBle) phone.setCalibration(store.load())
+        // Chưa hiệu chuẩn thành công → không tin số liệu cảm biến, dùng kéo dọc (giống PWA).
+        phone.dragMode = !store.isCalibrated()
+        for (p in pads.values) p.dragMode = !wantBle && phone.dragMode
+        rawText.text = if (wantBle) "" else if (phone.dragMode)
+            "Chế độ kéo dọc (chưa hiệu chuẩn): đặt ngón ở đáy vùng = Phù, trượt lên = Trung → Trầm."
+        else "Đo lực bằng cảm biến (đã hiệu chuẩn)."
         active = if (wantBle) ble else phone
         active.listener = this
         active.setProfile(profile, profile.defaultBpm)
@@ -148,7 +158,11 @@ class ExamActivity : Activity(), PadTouchListener, PulseTransportListener {
     // ---- Cảm ứng từ các pad (chỉ có ý nghĩa với chế độ điện thoại) ----------------------------------
 
     override fun onPadTouch(region: Region, event: MotionEvent) {
-        if (active === phone) phone.onTouch(region, event)
+        if (active !== phone) return
+        phone.onTouch(region, event, pads[region]?.height ?: 0)
+        phone.lastRaw?.let {
+            rawText.text = "pressure %.3f · size %.3f · nguồn lực: %s".format(it.pressure, it.size, if (phone.dragMode) "kéo dọc" else "cảm biến")
+        }
     }
 
     override fun onPadRelease(region: Region) {
