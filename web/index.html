@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PulseMaster Pro – Chẩn mạch YHCT</title>
+  <meta name="description" content="Luyện bắt mạch YHCT: lực ấn Phù–Trung–Trầm và phản hồi xúc giác.">
+  <meta name="theme-color" content="#b3261e">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>PulseMaster <span>Pro</span></h1>
+  <nav role="tablist" aria-label="Màn hình">
+    <button role="tab" id="t-exam" aria-selected="true" aria-controls="tab-exam">Khám 18 điểm</button>
+    <button role="tab" id="t-calib" aria-selected="false" aria-controls="tab-calib">Hiệu chuẩn</button>
+    <button role="tab" id="t-about" aria-selected="false" aria-controls="tab-about">Thiết bị</button>
+  </nav>
+</header>
+
+<main>
+  <div id="fatal" class="error" role="alert" hidden></div>
+
+  <section id="tab-exam" role="tabpanel" aria-labelledby="t-exam">
+    <div class="row">
+      <label>Mạch
+        <select id="pulse" aria-label="Chọn bộ mạch"></select>
+      </label>
+      <label>Nguồn
+        <select id="source" aria-label="Nguồn lực và xúc giác">
+          <option value="phone">Thiết bị này</option>
+          <option value="ble">Đệm BLE</option>
+        </select>
+      </label>
+      <button id="connect" hidden>Kết nối đệm</button>
+    </div>
+    <p id="feel" class="muted"></p>
+    <p id="transport" class="muted" aria-live="polite"></p>
+    <p id="status" class="status" aria-live="polite"></p>
+
+    <div class="stage">
+      <canvas id="gauge" width="80" height="280" role="img" aria-label="Thanh lực ấn"></canvas>
+      <div id="pads">
+        <div class="pad" data-region="thon" role="button" aria-label="Vùng Thốn"><b>Thốn</b><small></small></div>
+        <div class="pad" data-region="quan" role="button" aria-label="Vùng Quan"><b>Quan</b><small></small></div>
+        <div class="pad" data-region="xich" role="button" aria-label="Vùng Xích"><b>Xích</b><small></small></div>
+      </div>
+    </div>
+    <canvas id="wave" class="wave" role="img" aria-label="Đồ thị sóng mạch"></canvas>
+
+    <label class="sim" id="simrow">Lực mô phỏng (khi dùng chuột): <output id="simval">20%</output>
+      <input id="sim" type="range" min="0" max="100" value="20" aria-label="Lực mô phỏng">
+    </label>
+    <div class="row">
+      <button id="skip">Bỏ qua điểm</button>
+      <button id="restart">Làm lại</button>
+      <button id="results">Kết quả</button>
+    </div>
+  </section>
+
+  <section id="tab-calib" role="tabpanel" aria-labelledby="t-calib" hidden>
+    <h2>Hiệu chuẩn ngón tay (5 giây)</h2>
+    <p class="muted">Cần màn hình cảm ứng. Bấm Bắt đầu, đặt ngón tay lên vùng bên dưới và giữ chạm liên tục: ~1,7 giây chạm <b>nhẹ</b>, rồi nhấn <b>vừa</b>, rồi nhấn <b>mạnh</b>.</p>
+    <p id="cphase" class="status" aria-live="polite">Sẵn sàng</p>
+    <progress id="cprog" max="1000" value="0"></progress>
+    <div id="calpad" class="calpad" role="button" aria-label="Vùng hiệu chuẩn"></div>
+    <p id="cinfo" class="muted" aria-live="polite"></p>
+    <div class="row"><button id="cstart">Bắt đầu</button><button id="cclear">Xóa hiệu chuẩn đã lưu</button></div>
+  </section>
+
+  <section id="tab-about" role="tabpanel" aria-labelledby="t-about" hidden>
+    <h2>Khả năng của thiết bị này</h2>
+    <ul id="caps"></ul>
+    <p class="muted">Web có giới hạn so với app native: <code>navigator.vibrate</code> chỉ bật/tắt (biên độ được mô phỏng bằng độ rộng xung), không có trên iOS; nhiều trình duyệt di động không báo lực ấn thật. Độ chân thực xúc giác cao nhất cần app Android hoặc đệm BLE.</p>
+    <button id="install" hidden>Cài như ứng dụng</button>
+  </section>
+
+  <dialog id="summary"><pre id="sumtext"></pre><form method="dialog"><button>Đóng</button></form></dialog>
+</main>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
