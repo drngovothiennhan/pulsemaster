@@ -9,7 +9,7 @@ const T = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   await new Promise((r) => srv.listen(8125, r));
   const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 390, height: 900 }, deviceScaleFactor: 2 });
-  await ctx.addInitScript(() => { window.__vib = []; navigator.vibrate = (p) => { window.__vib.push(Array.isArray(p) ? p.slice() : [p]); return true; }; });
+  await ctx.addInitScript(() => { try { if (!localStorage.getItem('pulsemaster.settings_v1')) localStorage.setItem('pulsemaster.settings_v1', '{"vibMode":"pulse2"}'); } catch {} window.__vib = []; navigator.vibrate = (p) => { window.__vib.push(Array.isArray(p) ? p.slice() : [p]); return true; }; });
   const page = await ctx.newPage(); const errs = [];
   page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   await page.goto('http://localhost:8125/index.html'); await page.waitForFunction(() => document.querySelectorAll('#pulse option').length === 28);

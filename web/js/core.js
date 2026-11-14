@@ -305,9 +305,9 @@ export function toVibratePattern(wave, peak, stepMs = 20, minOnMs = 0) {
 }
 
 export const VIBRATION_MODES = Object.freeze({
-  pulse2: 'Xung kép: chủ ba + sóng dội (khuyên dùng)',
+  pulse2: 'Xung kép: chủ ba + sóng dội',
   single: 'Xung đơn theo biên độ (động cơ yếu / ERM)',
-  pwm: 'Mô phỏng sóng bằng độ rộng xung (LRA mạnh)',
+  pwm: 'Mô phỏng sóng bằng độ rộng xung (mặc định)',
 });
 
 /**

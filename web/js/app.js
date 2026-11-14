@@ -1,5 +1,5 @@
 import * as C from './core.js';
-import { WebHapticTransport } from './haptic.js';
+import { WebHapticTransport, AudioPulse } from './haptic.js';
 import { WebBleTransport } from './webble.js';
 
 const $ = (s) => document.querySelector(s);
@@ -12,14 +12,18 @@ const jget = (k, d) => { try { const v = store.get(k); return v ? JSON.parse(v) 
 
 // ---------- Cài đặt & hiệu chuẩn (lưu cục bộ) ----------
 const CAL_KEY = 'pulsemaster.finger_cal_v1', SET_KEY = 'pulsemaster.settings_v1', HIST_KEY = 'pulsemaster.history_v1', QUIZ_KEY = 'pulsemaster.quiz_v1';
-const settings = Object.assign({ vibMode: 'pulse2', vibGain: 1, forceSrc: 'auto', wake: true }, jget(SET_KEY, {}));
-if (!(settings.vibMode in C.VIBRATION_MODES)) settings.vibMode = 'pulse2';
+// Mặc định PWM: chủ dự án thử máy thật (Android + Chrome, 2026-11-14) thấy PWM dễ cảm nhận nhất.
+// sound = kênh "rung bằng loa"; mặc định bật khi trình duyệt không có navigator.vibrate. vibFelt: null = chưa hỏi.
+const settings = Object.assign({ vibMode: 'pwm', vibGain: 1, forceSrc: 'auto', wake: true, sound: !WebHapticTransport.canVibrate, soundFreq: 180, vibFelt: null }, jget(SET_KEY, {}));
+if (!(settings.vibMode in C.VIBRATION_MODES)) settings.vibMode = 'pwm';
+let calSaved = false; // đã có hiệu chuẩn hợp lệ → mới tin số liệu cảm biến
 const saveSettings = () => store.set(SET_KEY, JSON.stringify(settings));
 const defaultCal = () => C.FingerCalibration.defaultSizeOnly(8, 18, 32); // px tiếp xúc phổ biến; nên hiệu chuẩn
 function loadCal() {
   const raw = store.get(CAL_KEY);
+  calSaved = false;
   if (!raw) return defaultCal();
-  try { return C.FingerCalibration.fromJSON(JSON.parse(raw)); } catch { return defaultCal(); }
+  try { const c = C.FingerCalibration.fromJSON(JSON.parse(raw)); calSaved = true; return c; } catch { return defaultCal(); }
 }
 
 // ---------- Dữ liệu mạch ----------
@@ -183,11 +187,33 @@ function setMode(m) {
 
 // ---------- Pad: nhận PointerEvent ----------
 function simVisible() { return settings.forceSrc === 'slider' || (settings.forceSrc === 'auto' && !(navigator.maxTouchPoints > 0)); }
+/** Nguồn lực thực dùng cho một con trỏ: 'slider' | 'drag' | 'sensor'. Tự động: chuột → thanh; ngón tay → cảm biến
+ *  nếu ĐÃ hiệu chuẩn thành công, chưa thì kéo dọc (nhiều máy Android không báo lực/diện tích – máy thật đã gặp). */
+function sourceFor(pointerType) {
+  const mouse = pointerType === 'mouse' || pointerType === '';
+  if (settings.forceSrc === 'slider' || (settings.forceSrc === 'auto' && mouse)) return 'slider';
+  if (settings.forceSrc === 'drag' || (settings.forceSrc === 'auto' && !calSaved)) return 'drag';
+  return 'sensor';
+}
+const touchSource = () => sourceFor('touch');
 function inputFor(e, el) {
-  const mouse = e.pointerType === 'mouse' || e.pointerType === '';
-  if (settings.forceSrc === 'slider' || (settings.forceSrc === 'auto' && mouse)) return { manual: Number($('#sim').value) / 100 };
-  if (settings.forceSrc === 'drag') { const r = el.getBoundingClientRect(); return { manual: C.forceFromDrag(e.clientY - r.top, r.height) }; }
+  const src = sourceFor(e.pointerType);
+  if (src === 'slider') return { manual: Number($('#sim').value) / 100 };
+  if (src === 'drag') { const r = el.getBoundingClientRect(); return { manual: C.forceFromDrag(e.clientY - r.top, r.height) }; }
   return { raw: { pressure: e.pressure, size: Math.max(e.width || 0, e.height || 0) } };
+}
+// Khoảng giá trị thô đã thấy từ ngón tay thật (để chẩn đoán máy có báo lực/diện tích hay không)
+const seen = { n: 0, pMin: Infinity, pMax: -Infinity, sMin: Infinity, sMax: -Infinity };
+function noteRaw(e) {
+  if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+  const p = e.pressure, s = Math.max(e.width || 0, e.height || 0);
+  if (!Number.isFinite(p) || !Number.isFinite(s)) return;
+  seen.n++; seen.pMin = Math.min(seen.pMin, p); seen.pMax = Math.max(seen.pMax, p); seen.sMin = Math.min(seen.sMin, s); seen.sMax = Math.max(seen.sMax, s);
+}
+function syncPads() {
+  const drag = touchSource() === 'drag';
+  for (const r of C.REGIONS) regionEls[r].classList.toggle('drag', drag);
+  $('#draghelp').hidden = !drag || !(navigator.maxTouchPoints > 0);
 }
 let rawQueued = null;
 function showRaw(e, r) {
@@ -197,7 +223,7 @@ function showRaw(e, r) {
 const down = new Set();
 let weak = 0; // số mẫu liên tiếp ở ngón tay thật mà lực < ngưỡng chạm
 function hintIfNoForce(e, r) {
-  const real = e.pointerType === 'touch' || e.pointerType === 'pen';
+  const real = (e.pointerType === 'touch' || e.pointerType === 'pen') && sourceFor(e.pointerType) === 'sensor';
   weak = real && r.force < C.Zones.NONE_MAX ? weak + 1 : 0;
   $('#hint').hidden = weak < 5;
 }
@@ -210,8 +236,9 @@ const sleepOk = () => { try { wakeLock?.release(); } catch { /* bỏ qua */ } wa
 
 for (const r of C.REGIONS) {
   const el = regionEls[r];
-  const feed = (e) => { if (active === phone && down.has(e.pointerId)) { const res = phone.onForceInput(r, inputFor(e, el)); showRaw(e, res); hintIfNoForce(e, res); } };
-  el.addEventListener('pointerdown', (e) => { e.preventDefault(); down.add(e.pointerId); el.setPointerCapture(e.pointerId); keepAwake(); feed(e); });
+  const mark = el.querySelector('.mark');
+  const feed = (e) => { if (active === phone && down.has(e.pointerId)) { noteRaw(e); const res = phone.onForceInput(r, inputFor(e, el)); mark.style.bottom = `${Math.round(res.force * 100)}%`; showRaw(e, res); hintIfNoForce(e, res); } };
+  el.addEventListener('pointerdown', (e) => { e.preventDefault(); down.add(e.pointerId); try { el.setPointerCapture(e.pointerId); } catch { /* con trỏ tổng hợp */ } if (settings.sound) phone.audio.unlock(); keepAwake(); feed(e); });
   el.addEventListener('pointermove', feed);
   const up = (e) => { if (down.delete(e.pointerId) && active === phone) { phone.onRelease(r); weak = 0; $('#hint').hidden = true; } };
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
@@ -287,7 +314,7 @@ function cfinish() {
   recording = false; clearTimeout(ticker); $('#cprog').value = 1000;
   try {
     const cal = rec.finish();
-    store.set(CAL_KEY, JSON.stringify(cal)); phone.setCalibration(cal);
+    store.set(CAL_KEY, JSON.stringify(cal)); phone.setCalibration(cal); calSaved = true; syncPads();
     $('#cphase').textContent = 'Đã lưu hiệu chuẩn'; $('#cdrag').hidden = true;
     const lines = [cal.pressure ? 'Cảm biến lực thật: CÓ (60% lực + 40% diện tích)' : 'Cảm biến lực thật: KHÔNG – dùng diện tích tiếp xúc'];
     if (cal.size) lines.push(`Diện tích: nhẹ ${cal.size.light.toFixed(1)} · vừa ${cal.size.medium.toFixed(1)} · mạnh ${cal.size.hard.toFixed(1)}`);
@@ -296,13 +323,21 @@ function cfinish() {
   } catch (e) {
     $('#cphase').textContent = 'Chưa đạt';
     $('#cinfo').textContent = (e instanceof C.CalibrationError ? e.message : `Lỗi: ${e.message}`) +
-      ' Nếu thông số thô bên trên không đổi khi ấn nhẹ/mạnh, máy này không báo lực/diện tích.';
+      ' Nếu số đo bên dưới gần như giống nhau ở cả ba pha thì máy này không báo lực/diện tích: hãy dùng chế độ kéo dọc (đang là mặc định khi chưa hiệu chuẩn).';
     $('#cdrag').hidden = false;
   }
+  lastCalStats = calStats(); $('#cstats').textContent = lastCalStats; $('#cstats').hidden = false;
+}
+let lastCalStats = '';
+/** Số đo từng pha (trung vị, min–max) để người dùng báo lại khi hiệu chuẩn không được. */
+function calStats() {
+  const med = (v) => { const s = [...v].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : NaN; };
+  const f = (v, d) => (v.length ? `${med(v).toFixed(d)} (${Math.min(...v).toFixed(d)}–${Math.max(...v).toFixed(d)})` : '—');
+  return rec.samples.map((list, i) => `${['nhẹ', 'vừa', 'mạnh'][i]}: ${list.length} mẫu | pressure ${f(list.map((s) => s.pressure), 3)} | cỡ chạm ${f(list.map((s) => s.size), 1)} px`).join('\n');
 }
 $('#cstart').addEventListener('click', () => { recording = true; calLast = fingerDown ? calLast : null; $('#cinfo').textContent = ''; rec.start(performance.now()); clearTimeout(ticker); ctick(); });
-$('#cclear').addEventListener('click', () => { store.remove(CAL_KEY); phone.setCalibration(defaultCal()); $('#cinfo').textContent = 'Đã xóa. Quay về giá trị mặc định.'; });
-$('#cdrag').addEventListener('click', () => { settings.forceSrc = 'drag'; saveSettings(); $('#forcesrc').value = 'drag'; syncSim(); $('#cinfo').textContent = 'Đã chuyển sang chế độ kéo dọc: ở màn Bắt mạch, kéo ngón lên = ấn mạnh hơn, kéo xuống = nhẹ hơn.'; });
+$('#cclear').addEventListener('click', () => { store.remove(CAL_KEY); phone.setCalibration(defaultCal()); calSaved = false; syncPads(); $('#cinfo').textContent = 'Đã xóa. Quay về giá trị mặc định.'; });
+$('#cdrag').addEventListener('click', () => { settings.forceSrc = 'drag'; saveSettings(); $('#forcesrc').value = 'drag'; syncSim(); syncPads(); $('#cinfo').textContent = 'Đã chuyển sang chế độ kéo dọc: ở màn Bắt mạch, kéo ngón lên = ấn mạnh hơn, kéo xuống = nhẹ hơn.'; });
 const cp = $('#calpad');
 const csample = (e) => {
   $('#craw').textContent = `loại: ${e.pointerType || '?'} | pressure ${e.pressure?.toFixed(3)} | rộng×cao ${e.width?.toFixed?.(1)}×${e.height?.toFixed?.(1)} px`;
@@ -317,6 +352,20 @@ cp.addEventListener('pointerup', cup); cp.addEventListener('pointercancel', cup)
 
 // ---------- Cài đặt, thiết bị, lịch sử, PWA ----------
 function syncSim() { $('#simrow').hidden = !simVisible(); }
+function diagnostics() {
+  const r = (a, b, d) => (seen.n ? `${a.toFixed(d)}–${b.toFixed(d)}` : 'chưa chạm');
+  return [
+    `PulseMaster chẩn đoán ${new Date().toISOString()}`,
+    `UA: ${navigator.userAgent}`,
+    `Màn hình: ${screen.width}×${screen.height} @${devicePixelRatio} · điểm chạm tối đa ${navigator.maxTouchPoints}`,
+    `vibrate: ${WebHapticTransport.canVibrate ? 'có' : 'không'} · người dùng cảm thấy rung: ${settings.vibFelt === null ? 'chưa trả lời' : settings.vibFelt ? 'có' : 'KHÔNG'}`,
+    `AudioContext: ${AudioPulse.supported ? (phone.audio.ctx ? phone.audio.ctx.state : 'chưa mở') : 'không'} · số nhịp đã phát bằng loa: ${phone.audio.played}`,
+    `Cài đặt: ${JSON.stringify(settings)}`,
+    `Nguồn lực đang dùng cho ngón tay: ${touchSource()} · hiệu chuẩn đã lưu: ${calSaved ? store.get(CAL_KEY) : 'chưa'}`,
+    `Giá trị thô đã thấy ở màn Bắt mạch (${seen.n} mẫu): pressure ${r(seen.pMin, seen.pMax, 3)} · cỡ chạm ${r(seen.sMin, seen.sMax, 1)} px`,
+    `Lần hiệu chuẩn gần nhất:\n${lastCalStats || '(chưa chạy trong lần mở này)'}`,
+  ].join('\n');
+}
 function refreshAbout() {
   const caps = [
     ['Rung (navigator.vibrate)', WebHapticTransport.canVibrate ? 'có' : 'KHÔNG (iOS Safari…)'],
@@ -345,9 +394,20 @@ function renderHistory() {
     li.append(span, b); return li;
   }));
 }
+function soundTest() {
+  if (!profile) return false;
+  phone.audio.unlock();
+  const w = C.synthWaveform(profile, 60000 / currentBpm());
+  // AudioContext vừa resume có thể chưa 'running' ngay: thử lại sau một nhịp ngắn
+  const go = () => phone.audio.play(w, 0.9, { freq: settings.soundFreq, gain: settings.vibGain });
+  if (!go()) setTimeout(go, 150);
+  return true;
+}
+function setSound(on) { settings.sound = on; saveSettings(); $('#sound').checked = on; if (on) phone.audio.unlock(); }
 function vibInfo(ok) {
+  $('#vibask').hidden = !(ok && WebHapticTransport.canVibrate);
   $('#vibinfo').textContent = !WebHapticTransport.canVibrate ? 'Trình duyệt này không hỗ trợ rung (iOS Safari không có navigator.vibrate). Hãy dùng Chrome/Edge trên Android.'
-    : ok ? 'Đã gửi lệnh rung. Nếu KHÔNG cảm thấy gì: bật “Rung khi chạm/Phản hồi xúc giác” và tắt chế độ tiết kiệm pin/yên lặng trong Cài đặt Android; trong Chrome → Cài đặt trang web → cho phép rung; thử tăng cường độ rung.'
+    : ok ? 'Đã gửi lệnh rung. Bạn có cảm thấy máy rung không? (trình duyệt không tự biết được – hãy trả lời bên dưới)'
       : 'Trình duyệt từ chối lệnh rung (cần chạm vào trang trước, và không ở chế độ yên lặng).';
 }
 
@@ -358,9 +418,24 @@ function initSettingsUi() {
   $('#vibgain').value = Math.round(settings.vibGain * 100); $('#vibgainval').textContent = `${settings.vibGain.toFixed(1).replace('.', ',')}×`;
   vm.addEventListener('change', () => { settings.vibMode = vm.value; saveSettings(); });
   $('#vibgain').addEventListener('input', (e) => { settings.vibGain = Number(e.target.value) / 100; $('#vibgainval').textContent = `${settings.vibGain.toFixed(1).replace('.', ',')}×`; saveSettings(); });
-  $('#forcesrc').addEventListener('change', (e) => { settings.forceSrc = e.target.value; saveSettings(); syncSim(); });
+  $('#forcesrc').addEventListener('change', (e) => { settings.forceSrc = e.target.value; saveSettings(); syncSim(); syncPads(); });
   $('#wake').addEventListener('change', (e) => { settings.wake = e.target.checked; saveSettings(); if (!settings.wake) sleepOk(); });
   $('#vibtest').addEventListener('click', () => vibInfo(WebHapticTransport.test([300])));
+  $('#sound').checked = !!settings.sound; $('#soundfreq').value = settings.soundFreq; $('#soundfreqval').textContent = `${settings.soundFreq} Hz`;
+  $('#sound').addEventListener('change', (e) => setSound(e.target.checked));
+  $('#soundfreq').addEventListener('input', (e) => { settings.soundFreq = Number(e.target.value); $('#soundfreqval').textContent = `${settings.soundFreq} Hz`; saveSettings(); });
+  $('#soundtest').addEventListener('click', soundTest);
+  $('#vibyes').addEventListener('click', () => { settings.vibFelt = true; saveSettings(); $('#vibask').hidden = true; $('#vibinfo').textContent = 'Tốt: động cơ rung hoạt động. Chọn kiểu rung và cường độ dễ cảm nhận nhất bằng “Thử mẫu mạch hiện tại”.'; });
+  $('#vibno').addEventListener('click', () => {
+    settings.vibFelt = false; setSound(true); $('#vibask').hidden = true; soundTest();
+    $('#vibinfo').textContent = 'Đã bật kênh “rung bằng loa” thay thế (tăng âm lượng media; đặt máy trong lòng bàn tay để cảm nhận qua thân máy).\n'
+      + 'Để động cơ rung chạy lại, kiểm tra trên Android: (1) tắt chế độ Im lặng/Không làm phiền – Chrome không rung khi máy ở chế độ im lặng; '
+      + '(2) Cài đặt → Âm thanh và rung → Rung và phản hồi xúc giác: bật “Phản hồi khi chạm” và kéo cường độ lên; (3) tắt Tiết kiệm pin; rồi bấm Thử rung lại.';
+  });
+  $('#diag').addEventListener('click', async () => {
+    const t = diagnostics(); $('#diagout').textContent = t; $('#diagout').hidden = false;
+    try { await navigator.clipboard.writeText(t); $('#diag').textContent = 'Đã sao chép chẩn đoán'; } catch { $('#diag').textContent = 'Chọn và sao chép đoạn bên dưới'; }
+  });
   $('#vibpulse').addEventListener('click', () => {
     if (!profile) return;
     const pat = C.vibrationPattern(C.synthWaveform(profile, 60000 / currentBpm()), 0.9, { mode: settings.vibMode, gain: settings.vibGain });
@@ -398,7 +473,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------- Khởi động (sau khi mọi hàm/biến đã được khai báo) ----------
 function init() {
-  initSettingsUi(); syncSim();
+  initSettingsUi(); syncSim(); syncPads();
   if (!catalog) { for (const id of ['mode', 'pulse', 'source', 'skip', 'restart', 'results', 'bpm']) $(`#${id}`).disabled = true; return; }
   const sel = $('#pulse'), gs = $('#guess');
   for (const p of catalog.pulses) { sel.add(new Option(`${p.nameVi}  ${p.nameHan}`, p.id)); gs.add(new Option(`${p.nameVi}  ${p.nameHan}`, p.id)); }

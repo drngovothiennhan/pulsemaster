@@ -1,5 +1,5 @@
 // Service worker: cache-first cho vỏ ứng dụng để chạy offline. Đổi VERSION khi sửa file để làm mới cache.
-const VERSION = 'pulsemaster-v2';
+const VERSION = 'pulsemaster-v3';
 const ASSETS = [
   './', './index.html', './style.css', './manifest.webmanifest',
   './js/core.js', './js/app.js', './js/haptic.js', './js/webble.js',

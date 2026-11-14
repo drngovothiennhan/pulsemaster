@@ -51,14 +51,15 @@
     <p id="feel" class="muted"></p>
     <p id="transport" class="muted" aria-live="polite"></p>
     <p id="hint" class="notice" hidden>Máy chưa báo được lực ấn nên không rung. Vào <b>Hiệu chuẩn</b> để thử lại, hoặc <b>Cài đặt → Nguồn lực → Kéo dọc</b> (kéo ngón lên = ấn mạnh).</p>
+    <p id="draghelp" class="muted" hidden>Chế độ kéo dọc: đặt ngón ở <b>đáy</b> vùng = chạm nhẹ (Phù), trượt <b>lên</b> = ấn sâu dần (Trung → Trầm). Muốn đo lực ấn thật: vào Hiệu chuẩn.</p>
     <p id="status" class="status" aria-live="polite"></p>
 
     <div class="stage">
       <canvas id="gauge" width="80" height="280" role="img" aria-label="Thanh lực ấn"></canvas>
       <div id="pads">
-        <div class="pad" data-region="thon" role="button" aria-label="Vùng Thốn"><b>Thốn</b><small></small></div>
-        <div class="pad" data-region="quan" role="button" aria-label="Vùng Quan"><b>Quan</b><small></small></div>
-        <div class="pad" data-region="xich" role="button" aria-label="Vùng Xích"><b>Xích</b><small></small></div>
+        <div class="pad" data-region="thon" role="button" aria-label="Vùng Thốn"><b>Thốn</b><small></small><i class="zones" aria-hidden="true"><span>Trầm</span><span>Trung</span><span>Phù</span></i><i class="mark" aria-hidden="true"></i></div>
+        <div class="pad" data-region="quan" role="button" aria-label="Vùng Quan"><b>Quan</b><small></small><i class="zones" aria-hidden="true"><span>Trầm</span><span>Trung</span><span>Phù</span></i><i class="mark" aria-hidden="true"></i></div>
+        <div class="pad" data-region="xich" role="button" aria-label="Vùng Xích"><b>Xích</b><small></small><i class="zones" aria-hidden="true"><span>Trầm</span><span>Trung</span><span>Phù</span></i><i class="mark" aria-hidden="true"></i></div>
       </div>
     </div>
     <canvas id="wave" class="wave" role="img" aria-label="Đồ thị sóng mạch"></canvas>
@@ -92,6 +93,7 @@
     <progress id="cprog" max="1000" value="0"></progress>
     <div id="calpad" class="calpad" role="button" aria-label="Vùng hiệu chuẩn"></div>
     <pre id="craw" class="rawline">Chạm vào vùng trên để xem thông số mà máy báo.</pre>
+    <pre id="cstats" class="rawline" hidden></pre>
     <p id="cinfo" class="muted" aria-live="polite"></p>
     <div class="row"><button id="cstart">Bắt đầu</button><button id="cclear">Xóa hiệu chuẩn đã lưu</button><button id="cdrag" hidden>Máy không báo lực → dùng chế độ kéo dọc</button></div>
   </section>
@@ -101,7 +103,7 @@
     <div class="row">
       <label>Nguồn lực
         <select id="forcesrc" aria-label="Nguồn lực">
-          <option value="auto">Tự động (cảm biến; chuột → thanh)</option>
+          <option value="auto">Tự động (đã hiệu chuẩn → cảm biến; chưa → kéo dọc; chuột → thanh)</option>
           <option value="drag">Kéo dọc trong vùng (đáy nhẹ, đỉnh mạnh)</option>
           <option value="slider">Thanh lực thủ công</option>
         </select>
@@ -114,7 +116,14 @@
       <input id="vibgain" type="range" min="25" max="300" value="100" aria-label="Cường độ rung">
     </label>
     <div class="row"><button id="vibtest">Thử rung 0,3 giây</button><button id="vibpulse">Thử mẫu mạch hiện tại</button></div>
-    <p id="vibinfo" class="muted" aria-live="polite"></p>
+    <p id="vibinfo" class="muted" aria-live="polite" style="white-space:pre-line"></p>
+    <div class="row" id="vibask" hidden><button id="vibyes">Có, cảm thấy rung</button><button id="vibno">Không cảm thấy gì</button></div>
+    <label class="check"><input type="checkbox" id="sound"> Rung bằng loa: phát âm trầm theo sóng mạch (dùng khi máy không rung được)</label>
+    <label class="sim">Tần số âm: <output id="soundfreqval">180 Hz</output>
+      <input id="soundfreq" type="range" min="80" max="400" step="10" value="180" aria-label="Tần số âm">
+    </label>
+    <div class="row"><button id="soundtest">Thử âm mạch hiện tại</button><button id="diag">Sao chép chẩn đoán</button></div>
+    <pre id="diagout" class="rawline" hidden></pre>
     <label class="check"><input type="checkbox" id="wake" checked> Giữ màn hình sáng khi bắt mạch</label>
 
     <h2>Khả năng của thiết bị</h2>
