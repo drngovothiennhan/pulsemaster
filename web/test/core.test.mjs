@@ -211,3 +211,65 @@ test('BLE: uplink, hỏng gói, khung điều khiển', () => {
   const m = new C.PadChannelMapper(); near(m.force('quan', 2048), 0.5, 1e-3);
   m.setCalibration('quan', new C.ChannelCalibration(400, 1200, 2400)); near(m.force('quan', 1200), 0.525, 1e-9);
 });
+
+test('rung: mọi chế độ cho chuỗi hợp lệ, mẫu hợp lệ, im lặng khi biên độ 0', () => {
+  for (const mode of Object.keys(C.VIBRATION_MODES)) for (const gain of [0.5, 1, 2]) for (const p of catalog.pulses) {
+    const w = C.synthWaveform(p, 60000 / p.defaultBpm);
+    const pat = C.vibrationPattern(w, 0.9, { mode, gain });
+    assert.ok(pat.length > 0, `${p.id} ${mode}`);
+    assert.ok(pat.every((d) => Number.isInteger(d) && d >= 0), `${p.id} ${mode} ${pat}`);
+    if (mode !== 'pwm') assert.ok(pat[0] > 0, `${p.id} ${mode} phải bắt đầu bằng xung bật`); // PWM được phép mở đầu bằng 0 (nghỉ đầu giữ đúng thời điểm)
+    assert.equal(pat.length % 2, 1, `${p.id} ${mode} không kết thúc bằng nghỉ`);
+    assert.ok(pat.reduce((a, b) => a + b, 0) < 60000 / p.defaultBpm, `${p.id} ${mode} nằm trong chu kỳ`);
+    assert.deepEqual(C.vibrationPattern(w, 0, { mode, gain }), []);
+  }
+});
+
+test('rung: xung kép giữ đúng khoảng cách chủ ba–sóng dội, mạnh hơn khi ấn nhẹ/sâu theo biên độ, Vi/Hư chỉ còn chủ ba', () => {
+  const w = C.synthWaveform(P('hoat'), 750);
+  const [on1, gap, on2] = C.vibrationPattern(w, 1, { mode: 'pulse2' });
+  assert.equal(on1, 60);
+  assert.ok(Math.abs((on1 / 2 + gap + on2 / 2) - 80) <= 1, `tâm cách nhau ~80 ms, thực tế ${on1 / 2 + gap + on2 / 2}`);
+  assert.ok(on2 > 0 && on2 < on1);
+  assert.ok(C.vibrationPattern(w, 0.2)[0] < C.vibrationPattern(w, 0.9)[0], 'biên độ lớn → xung dài hơn');
+  assert.ok(C.vibrationPattern(w, 0.5, { gain: 2 })[0] > C.vibrationPattern(w, 0.5, { gain: 1 })[0], 'gain bù động cơ yếu');
+  assert.equal(C.vibrationPattern(C.synthWaveform(P('vi'), 900), 0.9, { mode: 'pulse2' }).length, 1, 'Vi: sóng dội 0.1 quá yếu → bỏ');
+  assert.equal(C.vibrationPattern(w, 0.9, { mode: 'single' }).length, 1);
+  assert.equal(C.vibrationPattern(w, 5, { mode: 'single', gain: 9 })[0] <= 90, true, 'có chặn trên');
+});
+
+test('PWM: xung nhỏ hơn minOn bị bỏ', () => {
+  const w = C.synthWaveform(P('hoat'), 750);
+  const all = C.toVibratePattern(w, 0.1, 20, 0).reduce((a, b) => a + b, 0);
+  const cut = C.toVibratePattern(w, 0.1, 20, 6);
+  assert.ok(cut.length === 0 || cut.reduce((a, b) => a + b, 0) <= all);
+});
+
+test('đố mạch: vòng mới luôn khác vòng trước, chốt một lần, tính điểm đúng', () => {
+  let i = 0; const seq = [0, 0, 0.5, 0.99, 0.5];
+  const q = new C.QuizSession(catalog.pulses, () => seq[i++ % seq.length]);
+  const first = q.answer;
+  const next = q.newRound(); assert.notEqual(next.id, first.id);
+  const r = q.guess(next.id); assert.ok(r.correct); assert.equal(q.correct, 1); assert.equal(q.total, 1);
+  assert.throws(() => q.guess('phu'), /đã chốt/);
+  q.newRound(); const wrong = catalog.pulses.find((p) => p.id !== q.answer.id);
+  assert.equal(q.guess(wrong.id).correct, false); assert.equal(q.correct, 1); assert.equal(q.total, 2);
+  assert.throws(() => new C.QuizSession([P('phu')]), /ít nhất 2/);
+  const rnd = new C.QuizSession(catalog.pulses); const seen = new Set(); for (let k = 0; k < 400; k++) { seen.add(rnd.answer.id); rnd.newRound(); }
+  assert.ok(seen.size >= 20, `đa dạng: ${seen.size}/28`);
+});
+
+test('xuất CSV: tiêu đề, thoát dấu, số dòng', () => {
+  const s = new C.ExamSession(); for (let k = 0; k < 17; k++) s.record(0.4321); s.skip();
+  const csv = C.examToCsv(s.results, P('phu'), '2026-11-14T10:00:00Z');
+  const lines = csv.trim().split('\n');
+  assert.equal(lines.length, 19); assert.equal(lines[0], 'ngay,mach,tay,bo,tang,dat,luc_tb');
+  assert.equal(lines[1], '2026-11-14T10:00:00Z,phu,left,thon,phu,1,0.432'); assert.equal(lines[18], '2026-11-14T10:00:00Z,phu,right,xich,tram,0,0.000');
+  assert.match(C.examToCsv([], { id: 'a,"b' }, 'd'), /^ngay/);
+  assert.ok(C.examToCsv(s.results.slice(0, 1), { id: 'a,"b' }, 'd').includes('"a,""b"'));
+});
+
+test('kéo dọc: đáy = nhẹ, đỉnh = mạnh, kẹp [0,1], pad cao 0 an toàn', () => {
+  assert.equal(C.forceFromDrag(280, 280), 0); assert.equal(C.forceFromDrag(0, 280), 1); assert.equal(C.forceFromDrag(140, 280), 0.5);
+  assert.equal(C.forceFromDrag(-50, 280), 1); assert.equal(C.forceFromDrag(999, 280), 0); assert.equal(C.forceFromDrag(10, 0), 0);
+});

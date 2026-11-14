@@ -31,8 +31,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Yêu cầu: Settings → Pages → Source = "GitHub Actions" (GITHUB_TOKEN không có quyền tự bật Pages)
       - uses: actions/configure-pages@v5
-        with: { enablement: true }
       - uses: actions/upload-pages-artifact@v3
         with: { path: web }
       - id: deployment

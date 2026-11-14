@@ -39,3 +39,10 @@ dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--c
 pre { white-space: pre-wrap; font: inherit; margin: 0 0 12px; }
 ul { padding-left: 1.2rem; } code { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 0 4px; }
 :focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+.notice { background: color-mix(in srgb, var(--info) 14%, var(--card)); border-radius: 10px; padding: 8px 12px; margin: 8px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.raw { margin: 8px 0; } .raw summary { cursor: pointer; color: var(--muted); font-size: .85rem; min-height: 32px; }
+.rawline, .raw pre { font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+#history { list-style: none; padding: 0; } #history li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
+#history button { min-height: 36px; padding: 4px 10px; }
+#quiz[hidden], [hidden] { display: none !important; }

@@ -15,18 +15,26 @@
 <header>
   <h1>PulseMaster <span>Pro</span></h1>
   <nav role="tablist" aria-label="Màn hình">
-    <button role="tab" id="t-exam" aria-selected="true" aria-controls="tab-exam">Khám 18 điểm</button>
+    <button role="tab" id="t-exam" aria-selected="true" aria-controls="tab-exam">Bắt mạch</button>
     <button role="tab" id="t-calib" aria-selected="false" aria-controls="tab-calib">Hiệu chuẩn</button>
-    <button role="tab" id="t-about" aria-selected="false" aria-controls="tab-about">Thiết bị</button>
+    <button role="tab" id="t-about" aria-selected="false" aria-controls="tab-about">Cài đặt</button>
   </nav>
 </header>
 
 <main>
   <div id="fatal" class="error" role="alert" hidden></div>
+  <div id="update" class="notice" hidden>Có bản mới. <button id="reload">Tải lại để cập nhật</button></div>
 
   <section id="tab-exam" role="tabpanel" aria-labelledby="t-exam">
     <div class="row">
-      <label>Mạch
+      <label>Chế độ
+        <select id="mode" aria-label="Chế độ">
+          <option value="exam">Khám 18 điểm</option>
+          <option value="free">Tự do (luyện)</option>
+          <option value="quiz">Đố mạch</option>
+        </select>
+      </label>
+      <label id="pulselbl">Mạch
         <select id="pulse" aria-label="Chọn bộ mạch"></select>
       </label>
       <label>Nguồn
@@ -37,8 +45,12 @@
       </label>
       <button id="connect" hidden>Kết nối đệm</button>
     </div>
+    <label class="sim" id="bpmrow">Nhịp: <output id="bpmval">72</output> lần/phút
+      <input id="bpm" type="range" min="35" max="180" value="72" aria-label="Nhịp tim">
+    </label>
     <p id="feel" class="muted"></p>
     <p id="transport" class="muted" aria-live="polite"></p>
+    <p id="hint" class="notice" hidden>Máy chưa báo được lực ấn nên không rung. Vào <b>Hiệu chuẩn</b> để thử lại, hoặc <b>Cài đặt → Nguồn lực → Kéo dọc</b> (kéo ngón lên = ấn mạnh).</p>
     <p id="status" class="status" aria-live="polite"></p>
 
     <div class="stage">
@@ -51,10 +63,22 @@
     </div>
     <canvas id="wave" class="wave" role="img" aria-label="Đồ thị sóng mạch"></canvas>
 
-    <label class="sim" id="simrow">Lực mô phỏng (khi dùng chuột): <output id="simval">20%</output>
-      <input id="sim" type="range" min="0" max="100" value="20" aria-label="Lực mô phỏng">
+    <div id="quiz" hidden>
+      <div class="row">
+        <label>Đây là mạch gì?
+          <select id="guess" aria-label="Đáp án"></select>
+        </label>
+        <button id="guessbtn">Chốt đáp án</button>
+        <button id="nextround">Vòng mới</button>
+      </div>
+      <p id="quizinfo" class="status" aria-live="polite"></p>
+    </div>
+
+    <label class="sim" id="simrow">Lực thủ công: <output id="simval">20%</output>
+      <input id="sim" type="range" min="0" max="100" value="20" aria-label="Lực thủ công">
     </label>
-    <div class="row">
+    <details class="raw"><summary>Thông số thô của màn hình</summary><pre id="raw">Chạm vào một vùng để xem.</pre></details>
+    <div class="row" id="examrow">
       <button id="skip">Bỏ qua điểm</button>
       <button id="restart">Làm lại</button>
       <button id="results">Kết quả</button>
@@ -67,18 +91,46 @@
     <p id="cphase" class="status" aria-live="polite">Sẵn sàng</p>
     <progress id="cprog" max="1000" value="0"></progress>
     <div id="calpad" class="calpad" role="button" aria-label="Vùng hiệu chuẩn"></div>
+    <pre id="craw" class="rawline">Chạm vào vùng trên để xem thông số mà máy báo.</pre>
     <p id="cinfo" class="muted" aria-live="polite"></p>
-    <div class="row"><button id="cstart">Bắt đầu</button><button id="cclear">Xóa hiệu chuẩn đã lưu</button></div>
+    <div class="row"><button id="cstart">Bắt đầu</button><button id="cclear">Xóa hiệu chuẩn đã lưu</button><button id="cdrag" hidden>Máy không báo lực → dùng chế độ kéo dọc</button></div>
   </section>
 
   <section id="tab-about" role="tabpanel" aria-labelledby="t-about" hidden>
-    <h2>Khả năng của thiết bị này</h2>
+    <h2>Cài đặt</h2>
+    <div class="row">
+      <label>Nguồn lực
+        <select id="forcesrc" aria-label="Nguồn lực">
+          <option value="auto">Tự động (cảm biến; chuột → thanh)</option>
+          <option value="drag">Kéo dọc trong vùng (đáy nhẹ, đỉnh mạnh)</option>
+          <option value="slider">Thanh lực thủ công</option>
+        </select>
+      </label>
+      <label>Kiểu rung
+        <select id="vibmode" aria-label="Kiểu rung"></select>
+      </label>
+    </div>
+    <label class="sim">Cường độ rung: <output id="vibgainval">1,0×</output>
+      <input id="vibgain" type="range" min="25" max="300" value="100" aria-label="Cường độ rung">
+    </label>
+    <div class="row"><button id="vibtest">Thử rung 0,3 giây</button><button id="vibpulse">Thử mẫu mạch hiện tại</button></div>
+    <p id="vibinfo" class="muted" aria-live="polite"></p>
+    <label class="check"><input type="checkbox" id="wake" checked> Giữ màn hình sáng khi bắt mạch</label>
+
+    <h2>Khả năng của thiết bị</h2>
     <ul id="caps"></ul>
-    <p class="muted">Web có giới hạn so với app native: <code>navigator.vibrate</code> chỉ bật/tắt (biên độ được mô phỏng bằng độ rộng xung), không có trên iOS; nhiều trình duyệt di động không báo lực ấn thật. Độ chân thực xúc giác cao nhất cần app Android hoặc đệm BLE.</p>
+    <p class="muted">Web có giới hạn so với app native: <code>navigator.vibrate</code> chỉ bật/tắt (biên độ được mô phỏng bằng độ dài/số xung), không có trên iOS; nhiều trình duyệt di động không báo lực ấn thật. Độ chân thực cao nhất cần đệm BLE.</p>
     <button id="install" hidden>Cài như ứng dụng</button>
+
+    <h2>Lịch sử khám</h2>
+    <ul id="history"></ul>
+    <div class="row"><button id="exportall">Tải toàn bộ (CSV)</button><button id="clearhist">Xóa lịch sử</button></div>
+    <p class="muted" id="quizscore"></p>
   </section>
 
-  <dialog id="summary"><pre id="sumtext"></pre><form method="dialog"><button>Đóng</button></form></dialog>
+  <dialog id="summary"><pre id="sumtext"></pre>
+    <div class="row"><button id="copysum">Sao chép</button><button id="dlsum">Tải CSV</button></div>
+    <form method="dialog"><button>Đóng</button></form></dialog>
 </main>
 <script type="module" src="js/app.js"></script>
 </body>

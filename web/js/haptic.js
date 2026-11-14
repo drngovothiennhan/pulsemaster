@@ -1,18 +1,21 @@
-// "PhoneInternalHaptic" cho web: lực từ PointerEvent (pressure + contact geometry) hoặc thanh mô phỏng (chuột),
+// "PhoneInternalHaptic" cho web: lực từ PointerEvent (pressure + contact geometry), kéo dọc hoặc thanh thủ công;
 // phản hồi bằng navigator.vibrate (chỉ Android/Chromium; iOS không hỗ trợ).
 import * as C from './core.js';
 
 export class WebHapticTransport {
-  constructor(calibration) {
+  /** settings: { vibMode, vibGain } – đọc mỗi nhịp nên đổi cài đặt có tác dụng ngay. */
+  constructor(calibration, settings = {}) {
     this.kind = 'phone';
     this.listener = null;
     this.state = { name: 'idle' };
     this.cal = calibration;
-    this.playback = null; this.profile = null; this.bpm = 72;
+    this.settings = settings;
+    this.profile = null; this.bpm = 72; this.sched = null;
     this.forces = {};
     this.filters = Object.fromEntries(C.REGIONS.map((r) => [r, new C.ForceFilter()]));
     this.trackers = Object.fromEntries(C.REGIONS.map((r) => [r, new C.DepthTracker()]));
-    this.enabled = true; this.vibrated = false; this.running = false; this.timer = null; this.nextAt = 0; this.sched = null;
+    this.enabled = true; this.vibrated = false; this.running = false; this.timer = null; this.nextAt = 0;
+    this.lastPattern = [];
   }
   static get canVibrate() { return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'; }
 
@@ -27,16 +30,18 @@ export class WebHapticTransport {
   startFeedback() { this.enabled = true; if (Object.keys(this.forces).length) this.#start(); }
   stopFeedback() { this.enabled = false; this.#stop(); }
 
-  /** simForce: lực (0..1) từ thanh mô phỏng, dùng khi thiết bị trỏ là chuột (không đo được lực). */
-  onPointer(region, e, simForce) {
-    let f;
-    if (e.pointerType === 'mouse' || e.pointerType === '') f = simForce;
-    else f = this.cal.fuse({ pressure: e.pressure, size: Math.max(e.width || 0, e.height || 0) });
-    f = this.filters[region].update(f);
+  /**
+   * input: { manual: 0..1 } (chuột/thanh/kéo dọc) hoặc { raw: {pressure, size} } (cảm biến).
+   * Trả về lực đã chuẩn hóa để UI hiển thị thông số thô.
+   */
+  onForceInput(region, input) {
+    const f0 = input.manual !== undefined ? input.manual : this.cal.fuse(input.raw);
+    const f = this.filters[region].update(f0);
     const d = this.trackers[region].update(f);
     this.forces[region] = f;
     this.listener?.onForce(region, f, d, performance.now());
     if (d !== C.Depth.NONE) this.#start();
+    return { force: f, depth: d };
   }
   onRelease(region) {
     delete this.forces[region];
@@ -45,13 +50,20 @@ export class WebHapticTransport {
     if (!Object.keys(this.forces).length) this.#stop();
   }
 
+  /** Phát thử một mẫu rung (nút "Thử rung"): trả về false nếu trình duyệt từ chối/không hỗ trợ. */
+  static test(pattern) {
+    if (!WebHapticTransport.canVibrate) return false;
+    try { return navigator.vibrate(pattern) === true; } catch { return false; }
+  }
+
   #start() {
     if (this.running || !this.enabled || !this.sched || this.state.name !== 'ready') return;
     this.running = true; this.nextAt = performance.now(); this.#tick();
   }
   #stop() {
     this.running = false; clearTimeout(this.timer); this.timer = null;
-    if (this.vibrated && WebHapticTransport.canVibrate) navigator.vibrate(0); // chưa từng rung thì không gọi (trình duyệt chặn khi chưa có thao tác chạm)
+    // chỉ hủy rung nếu đã từng rung (trình duyệt chặn vibrate khi chưa có thao tác chạm)
+    if (this.vibrated && WebHapticTransport.canVibrate) navigator.vibrate(0);
     this.vibrated = false;
   }
   #tick() {
@@ -59,7 +71,8 @@ export class WebHapticTransport {
     const now = performance.now();
     const plan = C.planBeat(this.profile, this.sched, { ...this.forces });
     if (!plan.silent && WebHapticTransport.canVibrate) {
-      const pat = C.toVibratePattern(plan.waveform, plan.peak);
+      const pat = C.vibrationPattern(plan.waveform, plan.peak, { mode: this.settings.vibMode || 'pulse2', gain: this.settings.vibGain ?? 1 });
+      this.lastPattern = pat;
       if (pat.length) { navigator.vibrate(pat); this.vibrated = true; }
     }
     this.listener?.onBeat({ startMs: now, plan, peak: plan.peak, silent: plan.silent, intervalMs: plan.intervalMs });

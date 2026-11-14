@@ -264,8 +264,10 @@ export function synthWaveform(p, intervalMs) {
   const total = pts[pts.length - 1][0], limit = intervalMs * 0.85;
   if (total > limit && limit > 0) { const k = limit / total; pts = pts.map(([t, l]) => [t * k, l]); }
   const points = pts.map(([tMs, level]) => ({ tMs, level }));
+  const k = total > limit && limit > 0 ? limit / total : 1; // hệ số nén thời gian khi chu kỳ ngắn
   return {
     points,
+    meta: { upstrokeMs: up * k, dicroticRatio: dic, dicroticDelayMs: 80 * k, timeScale: k },
     durationMs: points[points.length - 1].tMs,
     levelAt(t) {
       if (t <= points[0].tMs || t >= points[points.length - 1].tMs) return 0;
@@ -280,7 +282,7 @@ export function synthWaveform(p, intervalMs) {
  * navigator.vibrate chỉ nhận chuỗi [bật, tắt, bật, …] (không có biên độ) → mô phỏng biên độ bằng độ rộng xung (PWM):
  * mỗi bước stepMs bật `duty·stepMs`. Giới hạn của web, không phải của lõi.
  */
-export function toVibratePattern(wave, peak, stepMs = 20) {
+export function toVibratePattern(wave, peak, stepMs = 20, minOnMs = 0) {
   const n = Math.max(1, Math.ceil(wave.durationMs / stepMs));
   const segs = []; // [bật?, độ dài ms], đã gộp các đoạn liền kề cùng trạng thái
   const push = (on, d) => {
@@ -290,7 +292,8 @@ export function toVibratePattern(wave, peak, stepMs = 20) {
   };
   for (let i = 0; i < n; i++) {
     const duty = clamp(wave.levelAt((i + 0.5) * stepMs) * peak, 0, 1);
-    const on = Math.round(duty * stepMs);
+    let on = Math.round(duty * stepMs);
+    if (on < minOnMs) on = 0;
     push(true, on);
     push(false, stepMs - on);
   }
@@ -299,6 +302,65 @@ export function toVibratePattern(wave, peak, stepMs = 20) {
   if (segs.length && !segs[0][0]) out.push(0); // chuỗi phải bắt đầu bằng "bật"
   segs.forEach(([, d]) => out.push(d));
   return out;
+}
+
+export const VIBRATION_MODES = Object.freeze({
+  pulse2: 'Xung kép: chủ ba + sóng dội (khuyên dùng)',
+  single: 'Xung đơn theo biên độ (động cơ yếu / ERM)',
+  pwm: 'Mô phỏng sóng bằng độ rộng xung (LRA mạnh)',
+});
+
+/**
+ * Chuỗi cho navigator.vibrate theo chế độ. gain nhân biên độ (bù động cơ yếu), minOnMs = xung ngắn hơn mức này bị bỏ
+ * (nhiều động cơ không phản hồi xung < ~6 ms). Luôn bắt đầu bằng "bật", không kết thúc bằng "nghỉ".
+ */
+export function vibrationPattern(wave, peak, { mode = 'pulse2', gain = 1, stepMs = 20, minOnMs = 6 } = {}) {
+  const g = clamp(gain, 0.25, 3);
+  const p = clamp(peak * g, 0, 1);
+  if (p <= 0) return [];
+  if (mode === 'pwm') return toVibratePattern(wave, p, stepMs, minOnMs);
+  const maxOn = 90;
+  const on1 = clamp(Math.round(12 + 48 * p), 8, maxOn); // xung chủ ba: 12–60 ms theo biên độ
+  if (mode === 'single') return [on1];
+  const m = wave.meta ?? { dicroticRatio: 0.3, dicroticDelayMs: 80 };
+  const on2 = Math.round(on1 * m.dicroticRatio);
+  if (on2 < Math.max(minOnMs, 10)) return [on1]; // sóng dội quá yếu: chỉ còn chủ ba (vd. mạch Vi, Hư)
+  const gap = Math.max(12, Math.round(m.dicroticDelayMs - on1 / 2 - on2 / 2)); // tâm hai xung cách nhau ~80 ms
+  return [on1, gap, on2];
+}
+
+// ---------- Đố mạch (giấu tên mạch, học viên đoán) ----------
+export class QuizSession {
+  constructor(pulses, rng = Math.random) {
+    if (!pulses || pulses.length < 2) throw new Error('Cần ít nhất 2 mạch để đố');
+    this.pulses = pulses; this.rng = rng; this.correct = 0; this.total = 0; this.answer = null; this.answered = false;
+    this.newRound();
+  }
+  newRound() {
+    let next; do { next = this.pulses[Math.min(this.pulses.length - 1, Math.floor(this.rng() * this.pulses.length))]; } while (next === this.answer);
+    this.answer = next; this.answered = false; return next;
+  }
+  /** Chốt đáp án một lần cho mỗi vòng. */
+  guess(id) {
+    if (this.answered) throw new Error('Vòng này đã chốt đáp án');
+    this.answered = true; this.total++;
+    const ok = id === this.answer.id; if (ok) this.correct++;
+    return { correct: ok, answer: this.answer };
+  }
+}
+
+// ---------- Xuất kết quả ----------
+const csvCell = (v) => { const t = String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+export function examToCsv(results, pulse, dateIso) {
+  const rows = [['ngay', 'mach', 'tay', 'bo', 'tang', 'dat', 'luc_tb']];
+  for (const r of results) rows.push([dateIso, pulse.id, r.point.hand, r.point.region, ['none', 'phu', 'trung', 'tram'][r.point.depth], r.captured ? 1 : 0, r.meanForce.toFixed(3)]);
+  return rows.map((row) => row.map(csvCell).join(',')).join('\n') + '\n';
+}
+
+/** Lực từ vị trí kéo dọc trong pad (đáy = nhẹ, đỉnh = mạnh) – phương án cho máy không báo lực/diện tích. */
+export function forceFromDrag(yInPad, padHeight) {
+  if (!(padHeight > 0)) return 0;
+  return clamp(1 - yInPad / padHeight, 0, 1);
 }
 
 export function planBeat(profile, scheduler, forces, mode = 'MONOTONE_CUBIC') {
