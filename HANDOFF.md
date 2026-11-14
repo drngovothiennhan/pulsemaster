@@ -12,10 +12,11 @@ Gói bàn giao gốc (ZIP + prompt) nằm ngoài repo; nội dung đã được 
 |---|---|
 | 11-14 | **Không làm iOS** ("Ko cần cho iOS"). Đã xóa mã Swift (chưa từng biên dịch được). |
 | 11-14 | **Bật GitHub Pages để dùng PWA; tập trung bản PWA đủ tính năng.** APK để sau. |
+| 11-14 | Đổi repo sang **công khai** để dùng Pages miễn phí (chủ dự án tự thao tác). |
 | 11-14 | APK hiện **không hiệu chuẩn được và không rung được** (chủ dự án thử trên máy thật) – xem §6. |
 
 ## 3. Hiện trạng – nơi mọi thứ nằm
-- **Repo:** https://github.com/drngovothiennhan/pulsemaster (riêng tư/không rõ – chủ dự án tạo trống). Nhánh làm việc **duy nhất**: `claude/new-session-hpb4uo` (đang là nhánh mặc định). Chưa có PR/`main`.
+- **Repo:** https://github.com/drngovothiennhan/pulsemaster (**công khai** từ 2026-11-14). Nhánh làm việc **duy nhất**: `claude/new-session-hpb4uo` (đang là nhánh mặc định). Chưa có PR/`main`.
 - **Cấu trúc:**
 ```
 data/tcm_28_pulses_haptic.json   nguồn dữ liệu duy nhất (web/data/ là bản sao – test kiểm hai file giống nhau)
@@ -41,18 +42,18 @@ docs/        ARCHITECTURE.md, BLE_PROTOCOL.md, BUILD_AND_TEST.md
 | PWA – kiểu rung: xung kép (mặc định) / xung đơn / PWM, cường độ 0,25–3×, nút Thử rung | Xong về mã | Mẫu rung kiểm bằng test; **cảm giác thật chưa ai kiểm** |
 | PWA – lịch sử khám + xuất CSV, giữ màn hình sáng, offline (service worker v2), cài PWA | Xong | e2e offline PASS |
 | PWA – Web Bluetooth đệm 3 kênh | Mã xong; **chưa thử với phần cứng** (không có firmware/đệm) | chỉ kiểm nhánh "không hỗ trợ" |
-| **GitHub Pages** | **CHƯA BẬT – cần chủ dự án bấm 1 lần** (xem §5) | run Pages #1 lỗi `Resource not accessible by integration` |
+| **GitHub Pages** | **Đã bật & kiểm** (xem §5) | run Pages #4 xanh; URL tải được, offline OK |
 | Android app | Biên dịch OK (CI #2, #3), **chạy thật có lỗi** (§6) | APK artifact trên run `43601910143` (908 KB) |
 | iOS | **Bỏ** | — |
 | Firmware ESP32-S3 | **Chưa viết** (ngoài phạm vi); giao thức đã đặc tả | `docs/BLE_PROTOCOL.md` |
 
-## 5. VIỆC CẦN LÀM NGAY – bật GitHub Pages (thủ công, GITHUB_TOKEN không có quyền)
-1. Mở https://github.com/drngovothiennhan/pulsemaster/settings/pages
-2. **Build and deployment → Source: chọn `GitHub Actions`** (không cần chọn gì thêm).
-3. Quay lại phiên và nhờ chạy lại workflow "Deploy PWA to GitHub Pages" (hoặc Actions → workflow đó → *Run workflow*; hoặc đẩy 1 commit đụng `web/`).
-4. URL dự kiến: `https://drngovothiennhan.github.io/pulsemaster/` → trên điện thoại mở bằng **Chrome Android** → menu ⋮ → *Cài đặt ứng dụng / Thêm vào màn hình chính*.
-Lưu ý: repo **riêng tư** cần gói GitHub trả phí (Pro/Team) mới dùng được Pages; nếu không, đổi repo sang public (**việc cần chủ dự án duyệt**) hoặc host nơi khác (Netlify/Cloudflare Pages: chỉ cần thư mục `web/`). Môi trường `github-pages` mặc định chỉ cho deploy từ nhánh mặc định = `claude/new-session-hpb4uo` (đã đúng).
-Sau khi Pages chạy: **kiểm tra thật** URL tải được, manifest/service worker đăng ký, mở offline được. Nếu đường dẫn con (`/pulsemaster/`) gây lỗi: mọi đường dẫn trong `web/` đều tương đối nên không nên lỗi – nhưng phải kiểm.
+## 5. GitHub Pages – ĐÃ BẬT (2026-11-14)
+- Repo đã chuyển sang **công khai** (chủ dự án duyệt: repo riêng tư không có gói trả phí nên không dùng được Pages) và Source = GitHub Actions.
+- **URL: https://drngovothiennhan.github.io/pulsemaster/** – run Pages #4 thành công; đã kiểm: mọi tệp trả 200, Chromium tải được 28 mạch, service worker đăng ký, tải lại offline OK, không lỗi console. **Chưa kiểm trên điện thoại thật.**
+- Cài trên Android: Chrome → mở URL → menu ⋮ → *Cài đặt ứng dụng / Thêm vào màn hình chính*.
+- Deploy tự chạy khi đẩy thay đổi vào `web/**` hoặc `data/**` (nhánh `claude/**`/`main`), hoặc chạy tay: Actions → "Deploy PWA to GitHub Pages" → Run workflow (hoặc công cụ `actions_run_trigger`, workflow `pages.yml`).
+- Sửa file cache của PWA ⇒ tăng `VERSION` trong `web/sw.js` (đang `pulsemaster-v2`); người dùng sẽ thấy banner "Có bản mới".
+- Vì repo công khai: không bao giờ đưa khóa/dữ liệu người học thật vào repo.
 
 ## 6. Lỗi đã biết – Android app (chưa sửa; chủ dự án bảo tập trung PWA)
 Triệu chứng chủ dự án báo: hiệu chuẩn không được, không rung. **Chưa có thiết bị/log để chẩn đoán**, giả thuyết xếp theo khả năng:
@@ -80,7 +81,7 @@ Việc nên làm khi quay lại: thêm màn "thông số thô" + log, dùng cùn
 - Quy tắc dự án khác (CLAUDE.md của các repo hiệu `hiutmc-ecosystem`…) **không áp dụng** cho repo này.
 
 ## 9. Việc còn lại (theo thứ tự đề xuất)
-1. **Bật Pages (§5) và kiểm URL thật**, cài PWA trên điện thoại chủ dự án.
+1. Chủ dự án cài PWA từ URL (§5) và thử trên điện thoại thật.
 2. Chủ dự án thử PWA trên điện thoại thật và báo: (a) tab Cài đặt → "Thử rung" có rung không; (b) Hiệu chuẩn có "Đã lưu" không / thông số thô mà máy báo (pressure, rộng×cao) đổi thế nào khi ấn nhẹ–mạnh; (c) kiểu rung nào dễ cảm nhận nhất. Chỉnh `vibrationPattern` theo phản hồi (đây là phần rủi ro nhất, chỉ máy thật mới trả lời được).
 3. Sửa Android theo §6 (nếu chủ dự án vẫn muốn APK).
 4. Firmware ESP32-S3 theo `docs/BLE_PROTOCOL.md` + thử Web Bluetooth/Android BLE với đệm thật.
